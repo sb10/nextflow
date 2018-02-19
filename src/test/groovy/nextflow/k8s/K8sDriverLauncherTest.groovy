@@ -23,9 +23,10 @@ package nextflow.k8s
 import nextflow.cli.CliOptions
 import nextflow.cli.CmdRun
 import nextflow.cli.Launcher
+import nextflow.k8s.client.ClientConfig
+import nextflow.k8s.client.K8sClient
 import spock.lang.Specification
 import spock.lang.Unroll
-
 /**
  *
  * @author Paolo Di Tommaso <paolo.ditommaso@gmail.com>
@@ -64,6 +65,17 @@ class K8sDriverLauncherTest extends Specification {
         new CmdRun(params: [alpha:'x', beta:'y'])   | 'nextflow run foo --alpha x --beta y'
     }
 
+    def 'should set the run name' () {
+        given:
+        def cmd = new CmdRun()
+        cmd.launcher = new Launcher(options: new CliOptions())
+
+        when:
+        def l = new K8sDriverLauncher(cmd: cmd, pipelineName: 'foo', runName: 'bar')
+        then:
+        l.getLaunchCli() == 'nextflow run foo -name bar'
+    }
+
     @Unroll
     def 'should get pod name' () {
 
@@ -76,5 +88,78 @@ class K8sDriverLauncherTest extends Specification {
         name        | expect
         'foo'       | 'nf-run-foo'
         'foo_bar'   | 'nf-run-foo-bar'
+    }
+
+
+    def 'should create config' () {
+
+        given:
+        K8sClient client
+        def driver = Spy(K8sDriverLauncher)
+        def CLIENT_CFG = [server: 'foo.com', token: '']
+        
+        when:
+        client = driver.createK8sClient([:])
+        then:
+        1 * driver.configDiscover() >> new ClientConfig(server: 'http://k8s.com:8000', token: 'xyz')
+        client.config.server == 'http://k8s.com:8000'
+        client.config.token == 'xyz'
+        client.config.namespace == 'default'
+        client.config.serviceAccount == null
+
+        when:
+        def cfg = [k8s: [client:CLIENT_CFG, namespace: 'my-namespace', serviceAccount: 'my-account']]
+        client = driver.createK8sClient(cfg)
+        then:
+        1 * driver.configCreate(CLIENT_CFG) >> { ClientConfig.fromMap(CLIENT_CFG) }
+        client.config.server == 'foo.com'
+        client.config.namespace == 'my-namespace'
+        client.config.serviceAccount == 'my-account'
+
+    }
+
+    def 'should create launcher spec' () {
+
+        given:
+        def driver = Spy(K8sDriverLauncher)
+
+        when:
+        driver.userDir = '/the/user/dir'
+        driver.workDir = '/the/work/dir'
+        driver.projectDir = '/the/project/dir'
+        driver.runName = 'the-run-name'
+        driver.configMounts['cfg1'] = '/mnt/vol1'
+        driver.client = new K8sClient(new ClientConfig(namespace: 'foo', serviceAccount: 'bar'))
+
+        def spec = driver.makeLauncherSpec()
+        then:
+        driver.getPodName() >> 'nf-pod'
+        driver.getImageName() >> 'the-image'
+        driver.getVolumeClaims() >> new VolumeClaims( vol1: [mountPath: '/mnt/vol1'] )
+        driver.getLaunchCli() >> 'nextflow run foo'
+
+        spec == [apiVersion: 'v1',
+                 kind: 'Pod',
+                 metadata: [name:'nf-pod', namespace:'foo', labels:[app:'nextflow', runName:'the-run-name']],
+                 spec: [restartPolicy:'Never',
+                        containers:[
+                                [name:'nf-pod',
+                                 image:'the-image',
+                                 command:['/bin/bash', '-c', "mkdir -p '/the/user/dir'; if [ -d '/the/user/dir' ]; then cd '/the/user/dir'; else echo 'Cannot create nextflow userDir: /the/user/dir'; exit 1; fi; [ -f /etc/nextflow/scm ] && ln -s /etc/nextflow/scm \$NXF_HOME/scm; [ -f /etc/nextflow/nextflow.config ] && cp /etc/nextflow/nextflow.config nextflow.config; nextflow run foo"],
+                                 env:[
+                                         [name:'NXF_WORK', value:'/the/work/dir'],
+                                         [name:'NXF_ASSETS', value:'/the/project/dir'],
+                                         [name:'NXF_EXECUTOR', value:'k8s']],
+                                 volumeMounts:[
+                                         [name:'vol-1', mountPath:'/mnt/vol1'],
+                                         [name:'vol-2', mountPath:'/mnt/vol1']]]
+                                ],
+                        serviceAccountName:'bar',
+                        volumes:[[name:'vol-1', persistentVolumeClaim:[claimName:'vol1']],
+                                 [name:'vol-2', configMap:[name:'cfg1'] ]]
+                 ]
+        ]
+
+
     }
 }

@@ -93,14 +93,13 @@ class ConfigDiscovery {
         final user = allUsers.find{ Map it -> it.name == userName } ?.user ?: [:]
         final cluster = allClusters.find{ Map it -> it.name == clusterName } ?.cluster ?: [:]
 
-        if( !user.token && !user.tokenFile ) {
-            user.token = discoverAuthToken()
-        }
-
         def config = ClientConfig.fromUserAndCluster(user, cluster)
 
         if( config.clientCert && config.clientKey ) {
             config.keyManagers = createKeyManagers(config.clientCert, config.clientKey)
+        }
+        else if( !config.token ) {
+            config.token = discoverAuthToken()
         }
 
         return config

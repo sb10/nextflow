@@ -19,7 +19,10 @@
  */
 
 package nextflow.k8s
+
 import java.nio.file.NoSuchFileException
+import java.nio.file.Path
+import java.nio.file.Paths
 
 import com.beust.jcommander.DynamicParameter
 import com.beust.jcommander.Parameter
@@ -141,7 +144,7 @@ class K8sDriverLauncher {
      * Setup and verify required volumes and paths are properly configured
      */
     protected void checkStorageAndPaths() {
-        final volumes = new VolumeClaims(config.k8s?.volumeClaims)
+        final volumes = getVolumeClaims()
         if( !volumes )
             throw new AbortOperationException("Missing volume claim -- At least persistent volume claim definition needs to be provided in the nextflow configuration file")
 
@@ -197,6 +200,14 @@ class K8sDriverLauncher {
         return result.toMap()
     }
 
+    protected ClientConfig configCreate(Map config) {
+        ClientConfig.fromMap(config)
+    }
+
+    protected ClientConfig configDiscover() {
+        ClientConfig.discover()
+    }
+
     /**
      * Get a Kubernetes HTTP client to interact with the K8s cluster
      *
@@ -205,10 +216,18 @@ class K8sDriverLauncher {
      */
     protected K8sClient createK8sClient(Map config) {
 
-        def k8sConfig = ( config.k8s instanceof Map && config.k8s?.client?.server
-                ? ClientConfig.fromMap(config.k8s as Map)
-                : ClientConfig.discover()
+        final k8sConfig = ( config.k8s?.client?.server
+                ? configCreate(config.k8s.client as Map)
+                : configDiscover()
         )
+
+        if( config.k8s?.namespace ) {
+            k8sConfig.namespace = config.k8s.namespace
+        }
+
+        if( config.k8s?.serviceAccount ) {
+            k8sConfig.serviceAccount = config.k8s.serviceAccount
+        }
 
         new K8sClient(k8sConfig)
     }
@@ -227,6 +246,10 @@ class K8sDriverLauncher {
     protected String getPodName() {
         assert runName
         "nf-run-$runName".replaceAll('_','-')
+    }
+
+    protected VolumeClaims getVolumeClaims() {
+        new VolumeClaims(config.k8s?.volumeClaims)
     }
 
     private void checkUnsupportedOption(String name) {
@@ -301,6 +324,9 @@ class K8sDriverLauncher {
         result << "run"
         result << pipelineName
 
+        if( runName )
+            result << '-name' << runName
+
         addOption(result, cmd.&cacheable, { it==false } )
         addOption(result, cmd.&resume )
         addOption(result, cmd.&poolSize )
@@ -348,11 +374,18 @@ class K8sDriverLauncher {
      * @return A {@link Map} modeling driver pod specification
      */
     protected Map makeLauncherSpec() {
+        assert runName
+        assert userDir
+        assert workDir
+        assert projectDir
+        assert configMounts
+        assert client
 
         // -- setup config file
         def cmd = ''
+        cmd += "mkdir -p '$userDir'; if [ -d '$userDir' ]; then cd '$userDir'; else echo 'Cannot create nextflow userDir: $userDir'; exit 1; fi; "
         cmd += '[ -f /etc/nextflow/scm ] && ln -s /etc/nextflow/scm $NXF_HOME/scm; '
-        cmd +=  '[ -f /etc/nextflow/nextflow.config ] && cp /etc/nextflow/nextflow.config nextflow.config; '
+        cmd += '[ -f /etc/nextflow/nextflow.config ] && cp /etc/nextflow/nextflow.config nextflow.config; '
         cmd += getLaunchCli()
 
         def params = [
@@ -360,9 +393,9 @@ class K8sDriverLauncher {
                 imageName: getImageName(),
                 command: ['/bin/bash', '-c', cmd],
                 labels: [ app: 'nextflow', runName: runName ],
-                workDir: userDir,
                 namespace: client.config.namespace,
-                volumeClaims: config.k8s.volumeClaims,
+                serviceAccount: client.config.serviceAccount,
+                volumeClaims: getVolumeClaims(),
                 configMounts: configMounts,
                 env: [
                         NXF_WORK: workDir,
@@ -380,8 +413,14 @@ class K8sDriverLauncher {
      */
     protected createK8sLauncherPod() {
         final spec = makeLauncherSpec()
-        client.podCreate(spec)
+        client.podCreate(spec, yamlDebugPath())
     }
+
+    protected Path yamlDebugPath() {
+        boolean debug = config.k8s.debug?.yaml?.toString() == 'true'
+        return debug ? Paths.get('.nextflow.pod.yaml') : null
+    }
+
 
     /**
      * Creates a K8s ConfigMap to share the nextflow configuration in the K8s cluster

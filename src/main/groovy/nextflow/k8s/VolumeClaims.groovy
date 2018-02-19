@@ -21,7 +21,17 @@
 package nextflow.k8s
 
 /**
+ * Model a kubernetes volumes claims eg
  *
+ *   [
+ *      volumeClaimName1: [
+ *                  mountPath: '/the/mounting/dir'
+ *              ],
+ *
+ *      volumeClaimName2: [
+ *                  mountPath: '/the/mounting/dir'
+ *              ]
+ *   ]
  * @author Paolo Di Tommaso <paolo.ditommaso@gmail.com>
  */
 class VolumeClaims {

@@ -69,10 +69,10 @@ class ConfigDiscoveryTest extends Specification {
         when:
         def config = discovery.fromConfig(CONFIG)
         then:
-        1 * discovery.discoverAuthToken() >> 'secret-token'
+        0 * discovery.discoverAuthToken() >> 'secret-token'
         1 * discovery.createKeyManagers(CLIENT_CERT.decodeBase64(), CLIENT_KEY.decodeBase64()) >>  KEY_MANAGERS
         config.server == 'https://localhost:6443'
-        config.token == 'secret-token'
+        config.token == null
         config.namespace == 'default'
         config.clientCert == CLIENT_CERT.decodeBase64()
         config.clientKey == CLIENT_KEY.decodeBase64()
@@ -122,15 +122,104 @@ class ConfigDiscoveryTest extends Specification {
         when:
         def config = discovery.fromConfig(CONFIG)
         then:
-        1 * discovery.discoverAuthToken() >> 'secret-token'
         1 * discovery.createKeyManagers( CLIENT_CERT_FILE.bytes, CLIENT_KEY_FILE.bytes ) >> KEY_MANAGERS
         config.server == 'https://localhost:6443'
-        config.token == 'secret-token'
+        config.token == null
         config.namespace == 'default'
         config.clientCert == CLIENT_CERT_FILE.bytes
         config.clientKey == CLIENT_KEY_FILE.bytes
         config.sslCert == CA_FILE.bytes
         config.keyManagers.is( KEY_MANAGERS )
+        !config.verifySsl
+        !config.isFromCluster
+
+        cleanup:
+        folder?.deleteDir()
+    }
+
+    def 'should read config and use token' () {
+
+        given:
+        def folder = Files.createTempDirectory(null)
+        def CONFIG = folder.resolve('config')
+
+        CONFIG.text = """
+            apiVersion: v1
+            clusters:
+            - cluster:
+                insecure-skip-tls-verify: true
+                server: https://localhost:6443
+              name: docker-for-desktop-cluster
+            contexts:
+            - context:
+                cluster: docker-for-desktop-cluster
+                user: docker-for-desktop
+              name: docker-for-desktop
+            current-context: docker-for-desktop
+            kind: Config
+            preferences: {}
+            users:
+            - name: docker-for-desktop
+              user:
+                token: 90s090s98s7f8s
+            """
+                .stripIndent()
+
+        def discovery = Spy(ConfigDiscovery)
+
+        when:
+        def config = discovery.fromConfig(CONFIG)
+        then:
+        0 * discovery.discoverAuthToken() >> 'secret-token'
+        0 * discovery.createKeyManagers( _, _ ) >> null
+        config.server == 'https://localhost:6443'
+        config.token == '90s090s98s7f8s'
+        config.namespace == 'default'
+        !config.verifySsl
+        !config.isFromCluster
+
+        cleanup:
+        folder?.deleteDir()
+    }
+
+    def 'should read config and discover token' () {
+
+        given:
+        def folder = Files.createTempDirectory(null)
+        def CONFIG = folder.resolve('config')
+
+        CONFIG.text = """
+            apiVersion: v1
+            clusters:
+            - cluster:
+                insecure-skip-tls-verify: true
+                server: https://localhost:6443
+              name: docker-for-desktop-cluster
+            contexts:
+            - context:
+                cluster: docker-for-desktop-cluster
+                user: docker-for-desktop
+              name: docker-for-desktop
+            current-context: docker-for-desktop
+            kind: Config
+            preferences: {}
+            users:
+            - name: docker-for-desktop
+              user:
+                foo: bar
+            """
+                .stripIndent()
+
+        def discovery = Spy(ConfigDiscovery)
+
+        when:
+        def config = discovery.fromConfig(CONFIG)
+        then:
+        1 * discovery.discoverAuthToken() >> 'secret-token'
+        0 * discovery.createKeyManagers( _, _ ) >> null
+        config.server == 'https://localhost:6443'
+        config.token == 'secret-token'
+        config.namespace == 'default'
         !config.verifySsl
         !config.isFromCluster
 

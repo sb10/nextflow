@@ -39,6 +39,12 @@ class ClientConfig {
 
     String namespace
 
+    /**
+     * k8s service account name
+     * https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/
+     */
+    String serviceAccount
+
     String token
 
     byte[] sslCert
@@ -84,8 +90,8 @@ class ClientConfig {
             result.server = map.server
 
         if( map.token )
-            result.token
-        else  if( map.tokenFile )
+            result.token = map.token
+        else if( map.tokenFile )
             result.token = Paths.get(map.tokenFile.toString()).getText('UTF-8')
 
         if( map.namespace )

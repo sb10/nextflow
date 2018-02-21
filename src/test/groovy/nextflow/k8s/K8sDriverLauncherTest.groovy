@@ -33,6 +33,10 @@ import spock.lang.Unroll
  */
 class K8sDriverLauncherTest extends Specification {
 
+    def setup() {
+        K8sHelper.VOLUMES.set(0)
+    }
+
     @Unroll
     def 'should get cmd cli' () {
 
@@ -129,14 +133,14 @@ class K8sDriverLauncherTest extends Specification {
         driver.workDir = '/the/work/dir'
         driver.projectDir = '/the/project/dir'
         driver.runName = 'the-run-name'
-        driver.configMounts['cfg1'] = '/mnt/vol1'
+        driver.configMounts['cfg-2'] = '/mnt/path/2'
         driver.client = new K8sClient(new ClientConfig(namespace: 'foo', serviceAccount: 'bar'))
 
         def spec = driver.makeLauncherSpec()
         then:
         driver.getPodName() >> 'nf-pod'
         driver.getImageName() >> 'the-image'
-        driver.getVolumeClaims() >> new VolumeClaims( vol1: [mountPath: '/mnt/vol1'] )
+        driver.getVolumeClaims() >> new VolumeClaims( vol1: [mountPath: '/mnt/path/1'] )
         driver.getLaunchCli() >> 'nextflow run foo'
 
         spec == [apiVersion: 'v1',
@@ -152,12 +156,12 @@ class K8sDriverLauncherTest extends Specification {
                                          [name:'NXF_ASSETS', value:'/the/project/dir'],
                                          [name:'NXF_EXECUTOR', value:'k8s']],
                                  volumeMounts:[
-                                         [name:'vol-1', mountPath:'/mnt/vol1'],
-                                         [name:'vol-2', mountPath:'/mnt/vol1']]]
+                                         [name:'vol-1', mountPath:'/mnt/path/1'],
+                                         [name:'vol-2', mountPath:'/mnt/path/2']]]
                                 ],
                         serviceAccountName:'bar',
                         volumes:[[name:'vol-1', persistentVolumeClaim:[claimName:'vol1']],
-                                 [name:'vol-2', configMap:[name:'cfg1'] ]]
+                                 [name:'vol-2', configMap:[name:'cfg-2'] ]]
                  ]
         ]
 

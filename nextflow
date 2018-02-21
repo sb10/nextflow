@@ -252,12 +252,6 @@ if [[ "$dockerize" ]]; then
   exit 1
 fi
 
-if [[ "$NXF_USRMAP" ]]; then
-  addgroup docker
-  adduser -u $NXF_USRMAP -G docker -s /bin/bash -D nextflow
-  su nextflow
-fi
-
 CAPSULE_LOG=${CAPSULE_LOG:=''}
 CAPSULE_RESET=${CAPSULE_RESET:=''}
 CAPSULE_CACHE_DIR=${CAPSULE_CACHE_DIR:="$NXF_HOME/capsule"}

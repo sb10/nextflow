@@ -39,6 +39,7 @@ import nextflow.k8s.client.K8sResponseException
 import nextflow.scm.AssetManager
 import nextflow.scm.ProviderConfig
 import nextflow.util.ConfigHelper
+import nextflow.util.Escape
 import org.codehaus.groovy.runtime.MethodClosure
 /**
  * Configure and submit the execution of pod running the Nextlow main application
@@ -176,10 +177,13 @@ class K8sDriverLauncher {
      * @return A {@link Map} modeling the execution configuration settings
      */
     protected Map makeConfig(String pipelineName) {
-        // -- check and parse project remote config
-        final remote = new AssetManager(pipelineName, cmd)
-                .checkValidRemoteRepo()
-                .readRemoteConfig(cmd.profile)
+
+        def file = new File(pipelineName)
+        if( file.exists() ) {
+            def message = "The k8s executor cannot run local ${file.directory ? 'project' : 'script'}: $pipelineName"
+            message += " -- provide the absolute path of a project available in the Kubernetes cluster or the URL of a project hosted in a Git repository"
+            throw new AbortOperationException(message)
+        }
 
         // -- load local config if available
         final local = new ConfigBuilder()
@@ -187,17 +191,28 @@ class K8sDriverLauncher {
                 .setCmdRun(cmd)
                 .configObject()
 
-        final result = (ConfigObject)remote.merge(local)
+        ConfigObject config
+        if( pipelineName.startsWith('/') ) {
+            // when it's an absolute path the config must be local 
+            config = local
+        }
+        else {
+            // -- check and parse project remote config
+            def remote = new AssetManager(pipelineName, cmd)
+                    .checkValidRemoteRepo()
+                    .readRemoteConfig(cmd.profile)
+            config = (ConfigObject) remote.merge(local)
+        }
 
         // set k8s executor
-        result.process.executor = 'k8s'
+        config.process.executor = 'k8s'
         // make sure to disable k8s auto mounts
-        result.k8s.autoMountHostPaths = false
+        config.k8s.autoMountHostPaths = false
         // strip default work dir
-        if( result.workDir == 'work' )
-            result.remove('workDir')
+        if( config.workDir == 'work' )
+            config.remove('workDir')
 
-        return result.toMap()
+        return config.toMap()
     }
 
     protected ClientConfig configCreate(Map config) {
@@ -288,14 +303,14 @@ class K8sDriverLauncher {
         if( ( eval ? eval(val) : val ) ) {
             def param = field.getAnnotation(Parameter)
             if( param ) {
-                result << "${param.names()[0]} ${val}"
+                result << "${param.names()[0]} ${Escape.wildcards(String.valueOf(val))}"
                 return
             }
 
             param = field.getAnnotation(DynamicParameter)
             if( param && val instanceof Map ) {
                 val.each { k,v ->
-                    result << "${param.names()[0]}$k $v"
+                    result << "${param.names()[0]}$k ${Escape.wildcards(String.valueOf(v))}"
                 }
             }
         }

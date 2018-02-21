@@ -47,16 +47,24 @@ class ConfigDiscovery {
 
         config = new ClientConfig()
 
-        def home = System.getProperty('user.home')
+        // Note: System.getProperty('user.home') may not report the correct home path when
+        // running in a container. Use env HOME instead.
+        def home = System.getenv('HOME')
         def kubeConfig = env.get('KUBECONFIG') ? env.get('KUBECONFIG') : "$home/.kube/config"
         def configFile = Paths.get(kubeConfig)
 
         if( configFile.exists() ) {
             return fromConfig(configFile)
         }
+        else {
+            log.debug "K8s config file does not exist: $configFile"
+        }
 
         if( env.get('KUBERNETES_SERVICE_HOST') ) {
             return fromCluster(env)
+        }
+        else {
+            log.debug "K8s env variable KUBERNETES_SERVICE_HOST is not defined"
         }
 
         throw new IllegalStateException("Unable to lookup Kubernetes cluster configuration")

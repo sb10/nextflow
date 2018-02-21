@@ -468,6 +468,9 @@ task installLauncher(type: Copy, dependsOn: ['pack']) {
     into "$homeDir/.nextflow/framework/$version/"
 }
 
+/*
+ * build, tag and publish a and new docker packaged nextflow release
+ */
 task dockerImage(type: Exec) {
 
     def temp = File.createTempFile('upload',null)
@@ -483,6 +486,10 @@ task dockerImage(type: Exec) {
     commandLine 'bash', '-e', temp.absolutePath
 }
 
+/*
+ * Build a docker container image with the current snapshot
+ * DO NOT CALL IT DIRECTLY! Use the `make dockerPack` command instead
+ */
 task dockerPack(type: Exec, dependsOn: ['pack']) {
 
     def source = new File("$releaseDir/nextflow-$version-one.jar")
@@ -498,6 +505,8 @@ task dockerPack(type: Exec, dependsOn: ['pack']) {
     COPY nextflow /usr/local/bin/nextflow
     ENV NXF_HOME=/.nextflow
     ENV NXF_OPTS='-XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap'
+    RUN touch /.nextflow/dockerized && rm -rf /.nextflow/launch-classpath
+    RUN nextflow info
     """
 
     def temp = File.createTempFile('upload',null)

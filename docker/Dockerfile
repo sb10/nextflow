@@ -14,7 +14,9 @@ RUN curl https://www.nextflow.io/releases/v0.27.1/nextflow > /usr/local/bin/next
   && nextflow -download
 
 # see https://blogs.oracle.com/java-platform-group/java-se-support-for-docker-cpu-and-memory-limits
-ENV NXF_OPTS='-XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap'
+ENV NXF_HOME=/.nextflow NXF_OPTS='-XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap'
+
+RUN touch /.nextflow/dockerized && rm -rf /.nextflow/launch-classpath && nextflow info
 
 # define the entry point
-ENTRYPOINT ["nextflow"] 
+ENTRYPOINT ["nextflow"]

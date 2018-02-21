@@ -63,6 +63,7 @@ class K8sDriverLauncherTest extends Specification {
         new CmdRun(env: [XX:'hello', YY: 'world'])  | 'nextflow run foo -e.XX hello -e.YY world'
         new CmdRun(process: [mem: '100',cpus:'2'])  | 'nextflow run foo -process.mem 100 -process.cpus 2'
         new CmdRun(params: [alpha:'x', beta:'y'])   | 'nextflow run foo --alpha x --beta y'
+        new CmdRun(params: [alpha: '/path/*.txt'])  | 'nextflow run foo --alpha /path/\\*.txt'
     }
 
     def 'should set the run name' () {

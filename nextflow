@@ -248,7 +248,7 @@ if [[ "$dockerize" ]]; then
    -e USER -e HOME -e NXF_ASSETS=$NXF_ASSETS -e NXF_USRMAP=$(id -u) \
    -v /var/run/docker.sock:/var/run/docker.sock \
    -v $HOME:$HOME:ro,Z -v $NXF_ASSETS:$NXF_ASSETS:Z -v $PWD:$PWD:Z -w $PWD $NXF_DOCKER_OPTS \
-   --entrypoint /bin/bash nextflow/nextflow:$NXF_VER nextflow "${args[@]}"
+   nextflow/nextflow:$NXF_VER nextflow "${args[@]}"
   exit 1
 fi
 

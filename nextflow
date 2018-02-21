@@ -245,11 +245,17 @@ if [[ "$dockerize" ]]; then
   if [[ "$bg" ]]; then detach='--detach '; else detach=''; fi
   NXF_ASSETS=${NXF_ASSETS:-${NXF_HOME:-$HOME/.nextflow}/assets}
   exec docker run $detach --rm --net host \
-   -u $(id -u):$(id -g) -e USER -e HOME -e NXF_ASSETS=$NXF_ASSETS \
-   -v $(which docker):/usr/bin/docker -v /var/run/docker.sock:/var/run/docker.sock \
+   -e USER -e HOME -e NXF_ASSETS=$NXF_ASSETS -e NXF_USRMAP=$(id -u) \
+   -v /var/run/docker.sock:/var/run/docker.sock \
    -v $HOME:$HOME:ro,Z -v $NXF_ASSETS:$NXF_ASSETS:Z -v $PWD:$PWD:Z -w $PWD $NXF_DOCKER_OPTS \
    --entrypoint /bin/bash nextflow/nextflow:$NXF_VER nextflow "${args[@]}"
   exit 1
+fi
+
+if [[ "$NXF_USRMAP" ]]; then
+  addgroup docker
+  adduser -u $NXF_USRMAP -G docker -s /bin/bash -D nextflow
+  su nextflow
 fi
 
 CAPSULE_LOG=${CAPSULE_LOG:=''}

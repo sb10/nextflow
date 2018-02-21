@@ -244,8 +244,9 @@ NXF_DOCKER_OPTS=${NXF_DOCKER_OPTS:=''}
 if [[ "$dockerize" ]]; then
   if [[ "$bg" ]]; then detach='--detach '; else detach=''; fi
   NXF_ASSETS=${NXF_ASSETS:-${NXF_HOME:-$HOME/.nextflow}/assets}
+  mkdir -p "$NXF_ASSETS"
   exec docker run $detach --rm --net host \
-   -e USER -e HOME -e NXF_ASSETS=$NXF_ASSETS -e NXF_USRMAP=$(id -u) \
+   -e USER -e HOME -e NXF_ASSETS=$NXF_ASSETS -e NXF_USRMAP=$(id -u) -e NXF_DOCKER_OPTS='-u $(id -u)' \
    -v /var/run/docker.sock:/var/run/docker.sock \
    -v $HOME:$HOME:ro,Z -v $NXF_ASSETS:$NXF_ASSETS:Z -v $PWD:$PWD:Z -w $PWD $NXF_DOCKER_OPTS \
    nextflow/nextflow:$NXF_VER nextflow "${args[@]}"

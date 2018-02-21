@@ -690,6 +690,10 @@ class BashWrapperBuilder {
             }
         }
 
+        if( engine=='docker' && System.getenv('NXF_DOCKER_OPTS') ) {
+            builder.addRunOptions(System.getenv('NXF_DOCKER_OPTS'))
+        }
+
         // set up run docker params
         builder.params(containerConfig)
 

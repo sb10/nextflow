@@ -18,6 +18,24 @@
 #  You should have received a copy of the GNU General Public License
 #  along with Nextflow.  If not, see <http://www.gnu.org/licenses/>.
 
+#
+# This script acts as a pass-through container entry point. Its main role
+# is to create a user able to execute docker commands from the container
+# connecting to the host docker socket at runtime.
+#
+# The invoker needs to pass the user ID using the variable NXF_USRMAP.
+# When this variable is defined, it creates a new user in the container
+# with such ID and adds it to the `docker` group, then assigns the docker
+# socket file ownership to that user.
+#
+# Finally it switches the `nextflow` user using the `su` command and
+# executes the original target command line.
+# 
+# authors:
+#  Paolo Di Tommaso
+#  Emilio Palumbo
+#
+
 # enable debugging
 [[ "$NXF_DEBUG_ENTRY" ]] && set -x
 
@@ -37,7 +55,7 @@ su nextflow << EOF
 exec bash -c "$cli"
 EOF
 
-# otherwise just execute the co
+# otherwise just execute the command
 else 
 exec bash -c "$cli"
 fi

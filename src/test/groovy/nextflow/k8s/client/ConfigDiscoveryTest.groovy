@@ -227,6 +227,90 @@ class ConfigDiscoveryTest extends Specification {
         folder?.deleteDir()
     }
 
+    def 'should read config from given context' () {
+
+        given:
+        def folder = Files.createTempDirectory(null)
+        folder.resolve('fake-cert-file').text = 'fake-cert-content'
+        folder.resolve('fake-key-file').text = 'fake-key-content'
+        folder.resolve('fake-ca-file').text = 'fake-ca-content'
+
+        def CONFIG = folder.resolve('config')
+        CONFIG.text = '''
+                apiVersion: v1
+                clusters:
+                - cluster:
+                    certificate-authority: fake-ca-file
+                    server: https://1.2.3.4
+                  name: development
+                - cluster:
+                    insecure-skip-tls-verify: true
+                    server: https://5.6.7.8
+                  name: scratch
+                contexts:
+                - context:
+                    cluster: development
+                    namespace: frontend
+                    user: developer
+                  name: dev-frontend
+                - context:
+                    cluster: development
+                    namespace: storage
+                    user: developer
+                  name: dev-storage
+                - context:
+                    cluster: scratch
+                    namespace: default
+                    user: experimenter
+                  name: exp-scratch
+                current-context: ""
+                kind: Config
+                preferences: {}
+                users:
+                - name: developer
+                  user:
+                    client-certificate: fake-cert-file
+                - name: experimenter
+                  user:
+                    password: some-password
+                    username: exp        
+        '''.stripIndent()
+
+        when:
+        def cfg1 = new ConfigDiscovery(context: 'dev-frontend').fromConfig(CONFIG)
+        then:
+        cfg1.server == 'https://1.2.3.4'
+        cfg1.sslCert == 'fake-ca-content'.bytes
+        cfg1.isVerifySsl()
+        cfg1.namespace == 'frontend'
+        cfg1.clientCert == 'fake-cert-content'.bytes
+
+        when:
+        def cfg2 = new ConfigDiscovery(context: 'dev-storage').fromConfig(CONFIG)
+        then:
+        cfg2.server == 'https://1.2.3.4'
+        cfg2.sslCert == 'fake-ca-content'.bytes
+        cfg2.isVerifySsl()
+        cfg2.namespace == 'storage'
+        cfg2.clientCert == 'fake-cert-content'.bytes
+
+        when:
+        def cfg3 = new ConfigDiscovery(context: 'exp-scratch').fromConfig(CONFIG)
+        then:
+        cfg3.server == 'https://5.6.7.8'
+        cfg3.sslCert == null
+        !cfg3.isVerifySsl()
+        cfg3.namespace == 'default'
+
+        when:
+        new ConfigDiscovery(context: 'foo').fromConfig(CONFIG)
+        then:
+        thrown(IllegalArgumentException)
+
+        true
+        cleanup:
+        folder.deleteDir()
+    }
 
     def 'should load from cluster env' () {
         given:

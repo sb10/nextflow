@@ -40,6 +40,8 @@ class ConfigDiscovery {
 
     private ClientConfig config
 
+    private String context
+
     /**
      * Discover Kubernetes service from current environment settings
      */
@@ -91,17 +93,23 @@ class ConfigDiscovery {
     protected ClientConfig fromConfig(Path path) {
         def yaml = (Map)new Yaml().load(Files.newInputStream(path))
 
-        final contextName = yaml."current-context" as String
+        final contextName = context ?: yaml."current-context" as String
         final allContext = yaml.contexts as List
         final allClusters = yaml.clusters as List
         final allUsers = yaml.users as List
         final context = allContext.find { Map it -> it.name == contextName } ?.context
+        if( !context )
+            throw new IllegalArgumentException("Unknown Kubernetes context: $contextName -- check config file: $path")
         final userName = context?.user
         final clusterName = context?.cluster
         final user = allUsers.find{ Map it -> it.name == userName } ?.user ?: [:]
         final cluster = allClusters.find{ Map it -> it.name == clusterName } ?.cluster ?: [:]
 
-        def config = ClientConfig.fromUserAndCluster(user, cluster)
+        def config = ClientConfig.fromUserAndCluster(user, cluster, path)
+
+        if( context?.namespace ) {
+            config.namespace = context?.namespace
+        }
 
         if( config.clientCert && config.clientKey ) {
             config.keyManagers = createKeyManagers(config.clientCert, config.clientKey)

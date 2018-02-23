@@ -219,8 +219,8 @@ class K8sDriverLauncher {
         ClientConfig.fromMap(config)
     }
 
-    protected ClientConfig configDiscover() {
-        ClientConfig.discover()
+    protected ClientConfig configDiscover(String context=null) {
+        ClientConfig.discover(context)
     }
 
     /**
@@ -231,9 +231,11 @@ class K8sDriverLauncher {
      */
     protected K8sClient createK8sClient(Map config) {
 
+        final ctx = config.k8s?.context as String
+
         final k8sConfig = ( config.k8s?.client?.server
                 ? configCreate(config.k8s.client as Map)
-                : configDiscover()
+                : configDiscover(ctx)
         )
 
         if( config.k8s?.namespace ) {

@@ -20,6 +20,7 @@
 
 package nextflow.k8s.client
 import javax.net.ssl.KeyManager
+import java.nio.file.Path
 import java.nio.file.Paths
 
 import groovy.transform.CompileStatic
@@ -80,8 +81,8 @@ class ClientConfig {
         cut(bytes.encodeBase64().toString())
     }
 
-    static ClientConfig discover() {
-        new ConfigDiscovery().discover()
+    static ClientConfig discover(String context=null) {
+        new ConfigDiscovery(context: context).discover()
     }
 
     static ClientConfig fromMap(Map map) {
@@ -118,8 +119,9 @@ class ClientConfig {
         return result
     }
 
-    static ClientConfig fromUserAndCluster(Map user, Map cluster) {
-        def result = new ClientConfig()
+    static ClientConfig fromUserAndCluster(Map user, Map cluster, Path location) {
+        final base = location.isDirectory() ? location : location.parent
+        final result = new ClientConfig()
         if( user.token )
             result.token = user.token
 
@@ -128,13 +130,13 @@ class ClientConfig {
         }
 
         if( user."client-certificate" )
-            result.clientCert = Paths.get(user."client-certificate".toString()).bytes
+            result.clientCert = base.resolve(user."client-certificate".toString()).bytes
 
         else if( user."client-certificate-data" )
             result.clientCert = user."client-certificate-data".toString().decodeBase64()
 
         if( user."client-key" )
-            result.clientKey = Paths.get(user."client-key".toString()).bytes
+            result.clientKey = base.resolve(user."client-key".toString()).bytes
 
         else if( user."client-key-data" )
             result.clientKey = user."client-key-data".toString().decodeBase64()
@@ -148,7 +150,7 @@ class ClientConfig {
             result.sslCert = cluster."certificate-authority-data".toString().decodeBase64()
 
         else if( cluster."certificate-authority" )
-            result.sslCert = Paths.get(cluster."certificate-authority".toString()).bytes
+            result.sslCert = base.resolve(cluster."certificate-authority".toString()).bytes
 
         result.verifySsl = cluster."insecure-skip-tls-verify" != true
 

@@ -99,6 +99,7 @@ class K8sDriverLauncherTest extends Specification {
     def 'should create config' () {
 
         given:
+        Map cfg
         K8sClient client
         def driver = Spy(K8sDriverLauncher)
         def CLIENT_CFG = [server: 'foo.com', token: '']
@@ -106,20 +107,28 @@ class K8sDriverLauncherTest extends Specification {
         when:
         client = driver.createK8sClient([:])
         then:
-        1 * driver.configDiscover() >> new ClientConfig(server: 'http://k8s.com:8000', token: 'xyz')
+        1 * driver.configDiscover(null) >> new ClientConfig(server: 'http://k8s.com:8000', token: 'xyz')
         client.config.server == 'http://k8s.com:8000'
         client.config.token == 'xyz'
         client.config.namespace == 'default'
         client.config.serviceAccount == null
 
         when:
-        def cfg = [k8s: [client:CLIENT_CFG, namespace: 'my-namespace', serviceAccount: 'my-account']]
+        cfg = [k8s: [client:CLIENT_CFG, namespace: 'my-namespace', serviceAccount: 'my-account']]
         client = driver.createK8sClient(cfg)
         then:
         1 * driver.configCreate(CLIENT_CFG) >> { ClientConfig.fromMap(CLIENT_CFG) }
         client.config.server == 'foo.com'
         client.config.namespace == 'my-namespace'
         client.config.serviceAccount == 'my-account'
+
+        when:
+        cfg = [k8s: [context: 'foo']]
+        client = driver.createK8sClient(cfg)
+        then:
+        1 * driver.configDiscover('foo') >> new ClientConfig(server: 'http://server.com', namespace: 'my-namespace')
+        client.config.server == 'http://server.com'
+        client.config.namespace == 'my-namespace'
 
     }
 

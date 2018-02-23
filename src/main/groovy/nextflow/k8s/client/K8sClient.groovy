@@ -382,22 +382,5 @@ class K8sClient {
     }
 
 
-    @CompileDynamic
-    static void main(String[] args) {
-
-
-        def config = new ConfigDiscovery().discover()
-        def client = new K8sClient(config)
-
-        try {
-            def result = client.secretesList()
-            println result
-        }
-        catch ( K8sResponseException e ) {
-            assert e.response.reason == 'AlreadyExists'
-        }
-    }
-
-
 }
 

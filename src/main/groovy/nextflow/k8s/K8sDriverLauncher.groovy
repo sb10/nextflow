@@ -20,6 +20,7 @@
 
 package nextflow.k8s
 
+import java.lang.reflect.Field
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -269,8 +270,16 @@ class K8sDriverLauncher {
         new VolumeClaims(config.k8s?.volumeClaims)
     }
 
+    private Field getField(CmdRun cmd, String name) {
+        def clazz = cmd.class
+        while( clazz != CmdRun ) {
+            clazz = cmd.class.getSuperclass()
+        }
+        clazz.getDeclaredField(name)
+    }
+
     private void checkUnsupportedOption(String name) {
-        def field = cmd.getClass().getDeclaredField(name)
+        def field = getField(cmd,name)
         if( !field ) {
             log.warn "Unknown cli option to check: $name"
             return
@@ -299,7 +308,7 @@ class K8sDriverLauncher {
 
     private void addOption(List result, MethodClosure m, Closure eval=null) {
         def name = m.getMethod()
-        def field = cmd.getClass().getDeclaredField(name)
+        def field = getField(cmd,name)
         field.setAccessible(true)
         def val = field.get(cmd)
         if( ( eval ? eval(val) : val ) ) {

@@ -101,6 +101,7 @@ class Launcher {
                 new CmdLs(),
                 new CmdPull(),
                 new CmdRun(),
+                new CmdKubeRun(),
                 new CmdDrop(),
                 new CmdConfig(),
                 new CmdNode(),
@@ -146,6 +147,8 @@ class Launcher {
         if( !options.logFile ) {
             if( isDaemon() )
                 options.logFile = '.node-nextflow.log'
+            else if( command instanceof CmdKubeRun || options.debug || options.trace )
+                options.logFile = ".nextflow.k8s.log"
             else if( command instanceof CmdRun || options.debug || options.trace )
                 options.logFile = ".nextflow.log"
         }

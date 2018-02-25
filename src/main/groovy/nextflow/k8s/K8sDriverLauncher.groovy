@@ -30,6 +30,7 @@ import com.beust.jcommander.Parameter
 import com.google.common.hash.Hashing
 import groovy.util.logging.Slf4j
 import nextflow.Const
+import nextflow.cli.CmdKubeRun
 import nextflow.cli.CmdRun
 import nextflow.config.ConfigBuilder
 import nextflow.exception.AbortOperationException
@@ -43,7 +44,7 @@ import nextflow.util.ConfigHelper
 import nextflow.util.Escape
 import org.codehaus.groovy.runtime.MethodClosure
 /**
- * Configure and submit the execution of pod running the Nextlow main application
+ * Configure and submit the execution of pod running the Nextflow main application
  *
  * @author Paolo Di Tommaso <paolo.ditommaso@gmail.com>
  */
@@ -63,7 +64,7 @@ class K8sDriverLauncher {
     /**
      * Command run options
      */
-    private CmdRun cmd
+    private CmdKubeRun cmd
 
     /**
      * Kubernetes client
@@ -103,6 +104,13 @@ class K8sDriverLauncher {
 
     private String paramsFile
 
+    private boolean interactive
+
+    /**
+     * source code management configuration
+     */
+    private Map scm
+
     /**
      * Workflow script positional parameters
      */
@@ -118,20 +126,19 @@ class K8sDriverLauncher {
     void run(String name, List<String> args) {
         this.args = args
         this.pipelineName = name
+        this.interactive = name == 'login'
+        this.scm = ProviderConfig.getDefault()
         this.config = makeConfig(pipelineName)
         this.client = createK8sClient(config)
         checkStorageAndPaths()
         createK8sConfigMap()
         createK8sLauncherPod()
-        printK8sPodOutput()
+        waitPodStart()
+        interactive ? launchLogin() : printK8sPodOutput()
     }
 
-    /**
-     * Wait for the driver pod creation and prints the log to the
-     * console standard output
-     */
-    protected void printK8sPodOutput() {
-        final name = getPodName()
+    protected void waitPodStart() {
+        final name = runName
         print "Pod submitted: $name .. waiting to start"
         while( true ) {
             sleep 1000
@@ -139,7 +146,28 @@ class K8sDriverLauncher {
         }
         print "\33[2K\r"
         println "Pod started: $name"
-        client.podLog(getPodName(), follow:true).eachLine { println it }
+    }
+
+    /**
+     * Wait for the driver pod creation and prints the log to the
+     * console standard output
+     */
+    protected void printK8sPodOutput() {
+        client.podLog(runName, follow:true).eachLine { println it }
+    }
+
+    protected void validateClaimNames(Collection<String> allNames) {
+        for( String name : allNames ) {
+            try {
+                client.volumeClaimRead(name)
+            }
+            catch (K8sResponseException e) {
+                if( e.response.code == 404 ) {
+                    throw new AbortOperationException("Unknown volume claim: $name -- make sure a persistent volume claim is defined in your K8s cluster")
+                }
+                else throw e
+            }
+        }
     }
 
     /**
@@ -149,6 +177,9 @@ class K8sDriverLauncher {
         final volumes = getVolumeClaims()
         if( !volumes )
             throw new AbortOperationException("Missing volume claim -- At least persistent volume claim definition needs to be provided in the nextflow configuration file")
+
+        // validate volume claim names
+        validateClaimNames(volumes.getClaimNames())
 
         final defaultSharedDir = volumes.getFirstMount()
 
@@ -171,21 +202,7 @@ class K8sDriverLauncher {
         log.debug "Kubernetes workDir=$workDir; projectDir=$projectDir; volumeClaims=$volumes"
     }
 
-    /**
-     * Retrieve the workflow configuration and merge with the current local one.
-     *
-     * @param pipelineName Workflow project name
-     * @return A {@link Map} modeling the execution configuration settings
-     */
-    protected Map makeConfig(String pipelineName) {
-
-        def file = new File(pipelineName)
-        if( file.exists() ) {
-            def message = "The k8s executor cannot run local ${file.directory ? 'project' : 'script'}: $pipelineName"
-            message += " -- provide the absolute path of a project available in the Kubernetes cluster or the URL of a project hosted in a Git repository"
-            throw new AbortOperationException(message)
-        }
-
+    protected ConfigObject loadConfig( String pipelineName ) {
         // -- load local config if available
         final local = new ConfigBuilder()
                 .setOptions(cmd.launcher.options)
@@ -193,8 +210,8 @@ class K8sDriverLauncher {
                 .configObject()
 
         ConfigObject config
-        if( pipelineName.startsWith('/') ) {
-            // when it's an absolute path the config must be local 
+        if( interactive || pipelineName.startsWith('/') ) {
+            // when it's an absolute path the config must be local
             config = local
         }
         else {
@@ -204,6 +221,30 @@ class K8sDriverLauncher {
                     .readRemoteConfig(cmd.profile)
             config = (ConfigObject) remote.merge(local)
         }
+    }
+
+    /**
+     * Retrieve the workflow configuration and merge with the current local one.
+     *
+     * @param pipelineName Workflow project name
+     * @return A {@link Map} modeling the execution configuration settings
+     */
+    protected Map makeConfig(String pipelineName) {
+
+        def file = new File(pipelineName)
+        if( !interactive && file.exists() ) {
+            def message = "The k8s executor cannot run local ${file.directory ? 'project' : 'script'}: $pipelineName"
+            message += " -- provide the absolute path of a project available in the Kubernetes cluster or the URL of a project hosted in a Git repository"
+            throw new AbortOperationException(message)
+        }
+
+        def config = loadConfig(pipelineName)
+
+        // merge command line volume mounts
+        final volClaims = new VolumeClaims()
+        cmd.volMounts?.each { volClaims.add(it) }
+        volClaims.addAllSkipExisting( config.k8s.volumeClaims )
+        config.k8s.volumeClaims = volClaims
 
         // set k8s executor
         config.process.executor = 'k8s'
@@ -258,16 +299,8 @@ class K8sDriverLauncher {
         return config.navigate('k8s.nextflow.image', defImage)
     }
 
-    /**
-     * @return The driver pod name
-     */
-    protected String getPodName() {
-        assert runName
-        "nf-run-$runName".replaceAll('_','-')
-    }
-
     protected VolumeClaims getVolumeClaims() {
-        new VolumeClaims(config.k8s?.volumeClaims)
+        config.k8s.volumeClaims as VolumeClaims
     }
 
     private Field getField(CmdRun cmd, String name) {
@@ -334,12 +367,14 @@ class K8sDriverLauncher {
         assert cmd
         assert pipelineName
 
+        if( interactive ) {
+            return 'tail -f /dev/null'
+        }
+
         def result = []
         // -- configure NF command line
         result << "nextflow"
 
-        if( cmd.launcher.options.logFile )
-            result << "-log $cmd.launcher.options.logFile"
         if( cmd.launcher.options.trace )
             result << "-trace ${cmd.launcher.options.trace.join(',')}"
         if( cmd.launcher.options.debug )
@@ -408,14 +443,10 @@ class K8sDriverLauncher {
         assert client
 
         // -- setup config file
-        def cmd = ''
-        cmd += "mkdir -p '$userDir'; if [ -d '$userDir' ]; then cd '$userDir'; else echo 'Cannot create nextflow userDir: $userDir'; exit 1; fi; "
-        cmd += '[ -f /etc/nextflow/scm ] && ln -s /etc/nextflow/scm $NXF_HOME/scm; '
-        cmd += '[ -f /etc/nextflow/nextflow.config ] && cp /etc/nextflow/nextflow.config nextflow.config; '
-        cmd += getLaunchCli()
+        String cmd = "source /etc/nextflow/init.sh; ${getLaunchCli()}"
 
         def params = [
-                podName: getPodName(),
+                podName: runName,
                 imageName: getImageName(),
                 command: ['/bin/bash', '-c', cmd],
                 labels: [ app: 'nextflow', runName: runName ],
@@ -444,7 +475,10 @@ class K8sDriverLauncher {
 
     protected Path yamlDebugPath() {
         boolean debug = config.k8s.debug?.yaml?.toString() == 'true'
-        return debug ? Paths.get('.nextflow.pod.yaml') : null
+        final result = debug ? Paths.get('.nextflow.pod.yaml') : null
+        if( result )
+            log.info "Launcher pod spec file: $result"
+        return result
     }
 
 
@@ -453,15 +487,26 @@ class K8sDriverLauncher {
      */
     protected void createK8sConfigMap() {
         Map<String,String> configMap = [:]
+
+        // init file
+        String initScript = ''
+        initScript += "mkdir -p '$userDir'; if [ -d '$userDir' ]; then cd '$userDir'; else echo 'Cannot create nextflow userDir: $userDir'; exit 1; fi; "
+        initScript += '[ -f /etc/nextflow/scm ] && ln -s /etc/nextflow/scm $NXF_HOME/scm; '
+        initScript += '[ -f /etc/nextflow/nextflow.config ] && cp /etc/nextflow/nextflow.config $PWD/nextflow.config; '
+        initScript += 'echo cd \\"$PWD\\" > /root/.profile; '
+        configMap['init.sh'] = initScript
+
+        // nextflow config file
         if( config ) {
-            configMap.'nextflow.config' = ConfigHelper.toCanonicalString(config)
+            configMap['nextflow.config'] = ConfigHelper.toCanonicalString(config)
         }
 
-        def scm = ProviderConfig.getDefault()
+        // scm config file
         if( scm ) {
-            configMap.'scm'  = ConfigHelper.toCanonicalString(scm)
+            configMap['scm']  = ConfigHelper.toCanonicalString(scm)
         }
 
+        // params file
         if( cmd.paramsFile ) {
             final file = FileHelper.asPath(cmd.paramsFile)
             if( !file.exists() ) throw new NoSuchFileException("Params file does not exist: $file")
@@ -469,11 +514,10 @@ class K8sDriverLauncher {
             paramsFile = "/etc/nextflow/$file.name"
         }
 
-        if( configMap ) {
-            def name = "nf-config-${hash(configMap.values())}"
-            tryCreateConfigMap(name, configMap)
-            configMounts[name] = '/etc/nextflow'
-        }
+        // create the config map
+        final name = makeConfigMapName(configMap)
+        tryCreateConfigMap(name, configMap)
+        configMounts[name] = '/etc/nextflow'
     }
 
     protected void tryCreateConfigMap(String name, Map data) {
@@ -486,6 +530,10 @@ class K8sDriverLauncher {
         }
     }
 
+    protected String makeConfigMapName( Map configMap ) {
+        "nf-config-${hash(configMap.values())}"
+    }
+
     protected String hash(Collection<String> text) {
         def hasher = Hashing .murmur3_32() .newHasher()
         def itr = text.iterator()
@@ -496,4 +544,10 @@ class K8sDriverLauncher {
         return hasher.hash().toString()
     }
 
+    protected void launchLogin() {
+        def cmd = "kubectl exec -it $runName -- /bin/bash --login"
+        def proc = new ProcessBuilder().command('bash','-c',cmd).inheritIO().start()
+        proc.waitFor()
+        client.podDelete(runName)
+    }
 }

@@ -20,14 +20,15 @@
 
 package nextflow.cli
 
+import com.beust.jcommander.Parameter
 import com.beust.jcommander.Parameters
 import groovy.transform.CompileStatic
 import groovy.util.logging.Slf4j
 import nextflow.exception.AbortOperationException
 import nextflow.k8s.K8sDriverLauncher
-
 /**
- *
+ * Extends `run` command to support Kubernetes depployment
+ * 
  * @author Paolo Di Tommaso <paolo.ditommaso@gmail.com>
  */
 @Slf4j
@@ -35,8 +36,24 @@ import nextflow.k8s.K8sDriverLauncher
 @Parameters(commandDescription = "Execute a workflow in a Kubernetes cluster (experimental)")
 class CmdKubeRun extends CmdRun {
 
+    static private String POD_NAME = /[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/
+
+    /**
+     * One or more volume claims mounts
+     */
+    @Parameter(names = ['-v','-volume-mount'], description = 'Volume claim mounts eg. my-pvc:/mnt/path')
+    List<String> volMounts
+
     @Override
     String getName() { 'kuberun' }
+
+    @Override
+    protected void checkRunName() {
+        if( runName && !runName.matches(POD_NAME) )
+            throw new AbortOperationException("Not a valid K8s pod name -- It can only contain lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character")
+        super.checkRunName()
+        runName = runName.replace('_','-')
+    }
 
     @Override
     void run() {

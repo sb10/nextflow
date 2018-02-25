@@ -20,6 +20,8 @@
 
 package nextflow.k8s
 
+import java.nio.file.Files
+
 import nextflow.cli.CliOptions
 import nextflow.cli.CmdKubeRun
 import nextflow.cli.Launcher
@@ -81,20 +83,6 @@ class K8sDriverLauncherTest extends Specification {
         l.getLaunchCli() == 'nextflow run foo -name bar'
     }
 
-    @Unroll
-    def 'should get pod name' () {
-
-        given:
-        def l = new K8sDriverLauncher(runName: name)
-
-        expect:
-        l.getPodName() == expect
-        where:
-        name        | expect
-        'foo'       | 'nf-run-foo'
-        'foo_bar'   | 'nf-run-foo-bar'
-    }
-
 
     def 'should create config' () {
 
@@ -138,28 +126,27 @@ class K8sDriverLauncherTest extends Specification {
         def driver = Spy(K8sDriverLauncher)
 
         when:
+        driver.runName = 'foo-boo'
         driver.userDir = '/the/user/dir'
         driver.workDir = '/the/work/dir'
         driver.projectDir = '/the/project/dir'
-        driver.runName = 'the-run-name'
         driver.configMounts['cfg-2'] = '/mnt/path/2'
         driver.client = new K8sClient(new ClientConfig(namespace: 'foo', serviceAccount: 'bar'))
 
         def spec = driver.makeLauncherSpec()
         then:
-        driver.getPodName() >> 'nf-pod'
         driver.getImageName() >> 'the-image'
         driver.getVolumeClaims() >> new VolumeClaims( vol1: [mountPath: '/mnt/path/1'] )
         driver.getLaunchCli() >> 'nextflow run foo'
 
         spec == [apiVersion: 'v1',
                  kind: 'Pod',
-                 metadata: [name:'nf-pod', namespace:'foo', labels:[app:'nextflow', runName:'the-run-name']],
+                 metadata: [name:'foo-boo', namespace:'foo', labels:[app:'nextflow', runName:'foo-boo']],
                  spec: [restartPolicy:'Never',
                         containers:[
-                                [name:'nf-pod',
+                                [name:'foo-boo',
                                  image:'the-image',
-                                 command:['/bin/bash', '-c', "mkdir -p '/the/user/dir'; if [ -d '/the/user/dir' ]; then cd '/the/user/dir'; else echo 'Cannot create nextflow userDir: /the/user/dir'; exit 1; fi; [ -f /etc/nextflow/scm ] && ln -s /etc/nextflow/scm \$NXF_HOME/scm; [ -f /etc/nextflow/nextflow.config ] && cp /etc/nextflow/nextflow.config nextflow.config; nextflow run foo"],
+                                 command:['/bin/bash', '-c', "source /etc/nextflow/init.sh; nextflow run foo"],
                                  env:[
                                          [name:'NXF_WORK', value:'/the/work/dir'],
                                          [name:'NXF_ASSETS', value:'/the/project/dir'],
@@ -174,6 +161,93 @@ class K8sDriverLauncherTest extends Specification {
                  ]
         ]
 
+    }
+
+    def 'should create config map' () {
+
+        given:
+        def folder = Files.createTempDirectory('foo')
+        def params = folder.resolve('params.json')
+        params.text = 'bla-bla'
+        def driver = Spy(K8sDriverLauncher)
+        def NXF_CONFIG = [foo: 'bar']
+        def SCM_CONFIG = [hello: 'world']
+
+        def EXPECTED = [:]
+        EXPECTED['init.sh'] == ''
+        when:
+        driver.userDir = '/launch/dir'
+        driver.config = NXF_CONFIG
+        driver.scm = SCM_CONFIG
+        driver.cmd = new CmdKubeRun(paramsFile: params.toString())
+
+        driver.createK8sConfigMap()
+        then:
+        1 * driver.makeConfigMapName(_ as Map) >> 'nf-config-123'
+        1 * driver.tryCreateConfigMap('nf-config-123', _ as Map) >> {  name, cfg ->
+            assert cfg.'init.sh' == "mkdir -p '/launch/dir'; if [ -d '/launch/dir' ]; then cd '/launch/dir'; else echo 'Cannot create nextflow userDir: /launch/dir'; exit 1; fi; [ -f /etc/nextflow/scm ] && ln -s /etc/nextflow/scm \$NXF_HOME/scm; [ -f /etc/nextflow/nextflow.config ] && cp /etc/nextflow/nextflow.config \$PWD/nextflow.config; echo cd \\\"\$PWD\\\" > /root/.profile; "
+            assert cfg.'nextflow.config' == "foo = 'bar'\n"
+            assert cfg.'scm' == "hello = 'world'\n"
+            assert cfg.'params.json' == 'bla-bla'
+            return null
+        }
+
+        cleanup:
+        folder?.deleteDir()
+    }
+
+
+    def 'should make config' () {
+
+        given:
+        Map config
+        def driver = Spy(K8sDriverLauncher)
+        def NAME = 'somePipelineName'
+        def CFG_EMPTY = new ConfigObject()
+        def CFG_WITH_MOUNTS = new ConfigObject()
+        CFG_WITH_MOUNTS.k8s.volumeClaims = [ pvc: [mountPath:'/foo'] ]
+
+        when:
+        driver.cmd = new CmdKubeRun()
+        config = driver.makeConfig(NAME)
+        then:
+        1 *  driver.loadConfig(NAME) >> CFG_EMPTY
+        config.process.executor == 'k8s'
+        config.k8s.autoMountHostPaths == false
+
+        when:
+        driver.cmd = new CmdKubeRun()
+        config = driver.makeConfig(NAME)
+        then:
+        1 *  driver.loadConfig(NAME) >> CFG_WITH_MOUNTS
+        config.process.executor == 'k8s'
+        config.k8s.autoMountHostPaths == false
+        config.k8s.volumeClaims.pvc.mountPath == '/foo'
+        config.k8s.volumeClaims.size() == 1
+
+        when:
+        driver.cmd = new CmdKubeRun(volMounts: ['pvc-1:/this','pvc-2:/that'] )
+        config = driver.makeConfig(NAME)
+        then:
+        1 *  driver.loadConfig(NAME) >> CFG_EMPTY
+        config.process.executor == 'k8s'
+        config.k8s.autoMountHostPaths == false
+        config.k8s.volumeClaims.'pvc-1'.mountPath == '/this'
+        config.k8s.volumeClaims.'pvc-2'.mountPath == '/that'
+        config.k8s.volumeClaims.size() == 2
+
+
+        when:
+        driver.cmd = new CmdKubeRun(volMounts: ['xyz:/this'] )
+        config = driver.makeConfig(NAME)
+        then:
+        1 *  driver.loadConfig(NAME) >> CFG_WITH_MOUNTS
+        config.process.executor == 'k8s'
+        config.k8s.autoMountHostPaths == false
+        config.k8s.volumeClaims.'xyz'.mountPath == '/this'
+        config.k8s.volumeClaims.'pvc'.mountPath == '/foo'
+        config.k8s.volumeClaims.size() == 2
+        config.k8s.volumeClaims.iterator().next().key == 'xyz'  // the command line entry should be the first
 
     }
 }

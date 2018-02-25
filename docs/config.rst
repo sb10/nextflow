@@ -471,8 +471,8 @@ spotPrice                   Price bid for spot/preemptive instances launched whi
 Scope `k8s`
 -----------
 
-The ``k8s`` scope allows you to define the setting to configure the workflow deployment and execution in a Kubernetes
-cluster.
+The ``k8s`` scope allows the definition of the configuration settings that control the deployment and execution of
+workflow applications in a Kubernetes cluster.
 
 The following settings are available:
 
@@ -481,13 +481,28 @@ Name                Description
 ================== ================
 context             Defines the Kubernetes `configuration context name <https://kubernetes.io/docs/tasks/access-application-cluster/configure-access-multiple-clusters/>`_ to use.
 namespace           Defines the Kubernetes namespace to use (default: ``default``).
-serviceAccount      Defines the Kubernetes `service account name <service account name <https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/>`_ to use.
+serviceAccount      Defines the Kubernetes `service account name <https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/>`_ to use.
 userDir             Defines the path where the workflow is launched and the user data is stored. This must be a path in a shared K8s persistent volume (default: ``<volume-claim-mount-path>/<user-name>``.
 workDir             Defines the path where the workflow temporary data is stored. This must be a path in a shared K8s persistent volume (default:``<user-dir>/work``).
 projectDir          Defines the path where Nextflow projects are downloaded. This must be a path in a shared K8s persistent volume (default: ``<volume-claim-mount-path>/projects``).
-volumeClaims        Defines one or more 
+volumeClaims        Configures one or more persistent volume claims in the execution environment. See below for details.
 ================== ================
 
+Volume claims need to be defined as a named object specifying the ``mountPath`` as a nested object::
+
+    k8s {
+      volumeClaims = [ 'your-pvc-name': [mountPath: '/workspace'] ]
+    }
+
+An equivalent declaration using the curly brackets notation is shown below::
+
+    k8s {
+        volumeClaims {
+            'your-pvc-name' { mountPath = '/workspace' }
+        }
+    }
+
+More than one volume claims can be defined repeating the name and mount path declaration in the ``volumeClaims`` block.
 
 
 .. _config-timeline:

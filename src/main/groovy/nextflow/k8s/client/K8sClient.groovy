@@ -295,7 +295,7 @@ class K8sClient {
      *      A two elements list in which the first entry is an integer representing the HTTP response code,
      *      the second element is the text (json) response
      */
-    protected K8sResponseApi makeRequest(String method, String path, String body=null) {
+    protected K8sResponseApi makeRequest(String method, String path, String body=null) throws K8sResponseException {
         assert config.server, 'Missing Kubernetes server name'
         assert path.startsWith('/'), 'Kubernetes API request path must starts with a `/` character'
 
@@ -378,6 +378,14 @@ class K8sClient {
         final action = "/api/v1/namespaces/${config.namespace}/configmaps"
         def resp = delete(action)
         trace('DELETE', action, resp.text)
+        return new K8sResponseJson(resp.text)
+    }
+
+
+    K8sResponseJson volumeClaimRead(String name) {
+        final action = "/api/v1/namespaces/${config.namespace}/persistentvolumeclaims/${name}"
+        def resp = get(action)
+        trace('GET', action, resp.text)
         return new K8sResponseJson(resp.text)
     }
 

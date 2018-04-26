@@ -1,0 +1,20 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/openjdk:8u162-stretch
+        environment:
+            GRADLE_OPTS: -Dorg.gradle.daemon=false
+    steps:
+      - checkout
+      - run: mkdir -p ~/.nextflow/aws
+      - run: git submodule update --init
+      - run: rm $HOME/.gitconfig
+      - run: mkdir -p "$HOME/.nextflow" && echo "providers.github.auth='$NXF_GITHUB_ACCESS_TOKEN'" > "$HOME/.nextflow/scm"
+      - run: make assemble
+      - run:
+          command: make check install && ./integration-tests.sh
+          timeout: 2700
+      - run: mkdir -p $CIRCLE_TEST_REPORTS/junit/
+      - run: find . -type f -regex ".*/build/test-results/.*xml" -exec cp {} $CIRCLE_TEST_REPORTS/junit/ \;
+      - run: bash pub-tests.sh circleci

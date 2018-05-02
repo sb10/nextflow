@@ -1,28 +1,34 @@
 version: 2
-  shared: &shared
-    environment:
-      GRADLE_OPTS: -Dorg.gradle.daemon=false
-      TERM: dumb
-    steps:
-      - checkout
-      - run: sudo apt-get install -y make
-      - run: mkdir -p ~/.nextflow/aws
-      - run: rm $HOME/.gitconfig
-      - run: mkdir -p "$HOME/.nextflow" && echo "providers.github.auth='$NXF_GITHUB_ACCESS_TOKEN'" > "$HOME/.nextflow/scm"
-      - run: make test
+shared: &shared
+  environment:
+    GRADLE_OPTS: -Dorg.gradle.daemon=false
+    TERM: dumb
+  working_directory: ~/nextflow
+  steps:
+    - checkout
+    - run: sudo apt-get install -y make
+    - run: mkdir -p ~/.nextflow/aws
+    - run: rm $HOME/.gitconfig
+    - run: mkdir -p "$HOME/.nextflow" && echo "providers.github.auth='$NXF_GITHUB_ACCESS_TOKEN'" > "$HOME/.nextflow/scm"
+    - run: echo "org.gradle.daemon=false" > "gradle.properties"
+    - run: make assemble
+    - run: make check
 
 jobs:
-  java-9:
+  build:
     docker:
-      - image: circleci/openjdk:10-jdk
+      - image: circleci/openjdk:8-jdk
     <<: *shared
 
-  java-9:
+  build:
     docker:
       - image: circleci/openjdk:9-jdk
     <<: *shared
 
-  java-8:
+  build:
     docker:
-      - image: circleci/openjdk:8-jdk
+      - image: circleci/openjdk:10-jdk
     <<: *shared
+
+
+

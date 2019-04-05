@@ -92,7 +92,7 @@ public abstract class TaskHandler {
     /**
      * Task status attribute setter.
      *
-     * @param status The sask status as defined by {@link TaskStatus}
+     * @param status The task status as defined by {@link TaskStatus}
      */
     void setStatus( TaskStatus status ) {
 
